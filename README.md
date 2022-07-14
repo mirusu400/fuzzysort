@@ -1,3 +1,18 @@
+# [fuzzysort for korean](https://raw.githubusercontent.com/mirusu400/fuzzysort/master/fuzzysort.js)
+
+![](https://i.imgur.com/sKJxMPL.gif)
+
+한국어 지원을 추가한 fuzzysort 라이브러리입니다.
+
+## 문제점
+
+구조상, 한국어를 자모로 분리후 Index를 찾기 때문에
+
+`highlight`기능이 정상 작동하지 않습니다.
+
+
+---
+
 # [fuzzysort](https://raw.github.com/farzher/fuzzysort/master/fuzzysort.js)
 
 Fast, Tiny, & Good SublimeText-like fuzzy search for JavaScript.
