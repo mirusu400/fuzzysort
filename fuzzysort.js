@@ -39,6 +39,8 @@
 
   var go = (search, targets, options) => {                                                                                                                                                                                                                  if(search=='farzher')return[{target:"farzher was here (^-^*)/",score:0,_indexes:[0],obj:targets?targets[0]:NULL}]
     if(!search) return options&&options.all ? all(search, targets, options) : noResults
+    var searchOriginal = search
+    search = koreanToJamo(search);
 
     var preparedSearch = getPreparedSearch(search)
     var searchBitflags = preparedSearch.bitflags
@@ -56,7 +58,10 @@
     if(options && options.key) {
       var key = options.key
       for(var i = 0; i < targetsLen; ++i) { var obj = targets[i]
+        
         var target = getValue(obj, key)
+        var targetOriginal = target;
+        target = koreanToJamo(target);
         if(!target) continue
         if(!isObj(target)) target = getPrepared(target)
 
@@ -68,7 +73,7 @@
         // have to clone result so duplicate targets from different obj can each reference the correct obj
         result = {target:result.target, _targetLower:'', _targetLowerCodes:NULL, _nextBeginningIndexes:NULL, _bitflags:0, score:result.score, _indexes:result._indexes, obj:obj} // hidden
 
-        if(resultsLen < limit) { q.add(result); ++resultsLen }
+        if (resultsLen < limit) { result.target = targetOriginal; q.add(result); ++resultsLen }
         else {
           ++limitedCount
           if(result.score > q.peek().score) q.replaceTop(result)
@@ -85,6 +90,8 @@
         for (var keyI = 0; keyI < keysLen; ++keyI) {
           var key = keys[keyI]
           var target = getValue(obj, key)
+          var targetOriginal = target;
+          target = koreanToJamo(target);
           if(!target) { objResults[keyI] = NULL; continue }
           if(!isObj(target)) target = getPrepared(target)
 
@@ -96,7 +103,7 @@
         if(score === NULL) continue
         if(score < threshold) continue
         objResults.score = score
-        if(resultsLen < limit) { q.add(objResults); ++resultsLen }
+        if (resultsLen < limit) { result.target = targetOriginal; q.add(objResults); ++resultsLen }
         else {
           ++limitedCount
           if(score > q.peek().score) q.replaceTop(objResults)
@@ -105,15 +112,19 @@
 
     // no keys
     } else {
-      for(var i = 0; i < targetsLen; ++i) { var target = targets[i]
+      for(var i = 0; i < targetsLen; ++i) { 
+        var target = targets[i]
+        var targetOriginal = target;
+        
+        target = koreanToJamo(target)
         if(!target) continue
         if(!isObj(target)) target = getPrepared(target)
-
         if((searchBitflags & target._bitflags) !== searchBitflags) continue
         var result = algorithm(preparedSearch, target)
+        
         if(result === NULL) continue
         if(result.score < threshold) continue
-        if(resultsLen < limit) { q.add(result); ++resultsLen }
+        if(resultsLen < limit) { result.target = targetOriginal; q.add(result); ++resultsLen }
         else {
           ++limitedCount
           if(result.score > q.peek().score) q.replaceTop(result)
@@ -127,7 +138,6 @@
     results.total = resultsLen + limitedCount
     return results
   }
-
 
   var highlight = (result, hOpen, hClose) => {
     if(typeof hOpen === 'function') return highlightCallback(result, hOpen)
@@ -440,6 +450,35 @@
     return result
   }
 
+  var koreanToJamo = (str) => {
+    var f = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ',
+      'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ',
+      'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+    var s = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ',
+      'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ',
+      'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'];
+    var t = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ',
+      'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ',
+      'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ',
+      'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+    var result = []
+    for (var i=0; i < str.length; ++i) {
+      var c = str.charAt(i);
+      if (c >= '가' && c <= '힣') {
+        var uni = str.charCodeAt(i) - 0xAC00;
+        var fn = parseInt(uni / 588);
+        var sn = parseInt((uni - (fn * 588)) / 28);
+        var tn = parseInt(uni % 28);
+        result.push(f[fn]);
+        result.push(s[sn]);
+        if (t[tn]) result.push(t[tn]);
+      } else {
+        result.push(c);
+      }
+    }
+
+    return result.join('')
+  }
 
   var prepareLowerInfo = (str) => {
     var strLen = str.length
@@ -471,13 +510,16 @@
     var beginningIndexes = []; var beginningIndexesLen = 0
     var wasUpper = false
     var wasAlphanum = false
+    var wasKorean = false
     for(var i = 0; i < targetLen; ++i) {
       var targetCode = target.charCodeAt(i)
       var isUpper = targetCode>=65&&targetCode<=90
       var isAlphanum = isUpper || targetCode>=97&&targetCode<=122 || targetCode>=48&&targetCode<=57
-      var isBeginning = isUpper && !wasUpper || !wasAlphanum || !isAlphanum
+      var isKorean = targetCode>=0xAC00&&targetCode<=0xD7AF
+      var isBeginning = isUpper && !wasUpper || !wasAlphanum || !isAlphanum || !isKorean
       wasUpper = isUpper
       wasAlphanum = isAlphanum
+      wasKorean = isKorean
       if(isBeginning) beginningIndexes[beginningIndexesLen++] = i
     }
     return beginningIndexes
