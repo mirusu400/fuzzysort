@@ -40,9 +40,10 @@
   var go = (search, targets, options) => {                                                                                                                                                                                                                  if(search=='farzher')return[{target:"farzher was here (^-^*)/",score:0,_indexes:[0],obj:targets?targets[0]:NULL}]
     if(!search) return options&&options.all ? all(search, targets, options) : noResults
     var searchOriginal = search
-    search = koreanToJamo(search);
+    // search = koreanToJamo(search);
 
     var preparedSearch = getPreparedSearch(search)
+    console.log(preparedSearch);
     var searchBitflags = preparedSearch.bitflags
     var containsSpace  = preparedSearch.containsSpace
 
@@ -61,7 +62,7 @@
         
         var target = getValue(obj, key)
         var targetOriginal = target;
-        target = koreanToJamo(target);
+        // target = koreanToJamo(target);
         if(!target) continue
         if(!isObj(target)) target = getPrepared(target)
 
@@ -91,7 +92,7 @@
           var key = keys[keyI]
           var target = getValue(obj, key)
           var targetOriginal = target;
-          target = koreanToJamo(target);
+          // target = koreanToJamo(target);
           if(!target) { objResults[keyI] = NULL; continue }
           if(!isObj(target)) target = getPrepared(target)
 
@@ -116,10 +117,11 @@
         var target = targets[i]
         var targetOriginal = target;
         
-        target = koreanToJamo(target)
+        // target = koreanToJamo(target)
         if(!target) continue
         if(!isObj(target)) target = getPrepared(target)
         if((searchBitflags & target._bitflags) !== searchBitflags) continue
+        console.log(target);
         var result = algorithm(preparedSearch, target)
         
         if(result === NULL) continue
@@ -140,6 +142,7 @@
   }
 
   var highlight = (result, hOpen, hClose) => {
+    console.log(result);
     if(typeof hOpen === 'function') return highlightCallback(result, hOpen)
     if(result === NULL) return NULL
     if(hOpen === undefined) hOpen = '<b>'
@@ -213,7 +216,17 @@
   var prepare = (target) => {
     if(typeof target !== 'string') target = ''
     var info = prepareLowerInfo(target)
-    return {'target':target, _targetLower:info._lower, _targetLowerCodes:info.lowerCodes, _nextBeginningIndexes:NULL, _bitflags:info.bitflags, 'score':NULL, _indexes:[0], 'obj':NULL} // hidden
+    return {
+      'target':target,
+      _targetLower:info._lower,
+      _targetLowerCodes:info.lowerCodes,
+      _nextBeginningIndexes:NULL,
+      _bitflags:info.bitflags,
+      'score':NULL,
+      _indexes:[0],
+      'obj':NULL,
+      originalCharPositions:info.originalCharPositions
+    } // hidden
   }
 
 
@@ -235,11 +248,23 @@
       for(var i=0; i<searches.length; i++) {
         if(searches[i] === '') continue
         var _info = prepareLowerInfo(searches[i])
-        spaceSearches.push({lowerCodes:_info.lowerCodes, _lower:searches[i].toLowerCase(), containsSpace:false})
+        spaceSearches.push({
+          lowerCodes:_info.lowerCodes,
+          _lower:searches[i].toLowerCase(),
+          containsSpace:false,
+          originalCharPositions: _info.originalCharPositions,
+        })
       }
     }
 
-    return {lowerCodes: info.lowerCodes, bitflags: info.bitflags, containsSpace: info.containsSpace, _lower: info._lower, spaceSearches: spaceSearches}
+    return {
+      lowerCodes: info.lowerCodes,
+      bitflags: info.bitflags,
+      containsSpace: info.containsSpace,
+      _lower: info._lower,
+      spaceSearches: spaceSearches,
+      originalCharPositions: info.originalCharPositions
+    }
   }
 
 
@@ -486,24 +511,38 @@
     var lowerCodes = [] // new Array(strLen)    sparse array is too slow
     var bitflags = 0
     var containsSpace = false // space isn't stored in bitflags because of how searching with a space works
-
+    var originalCharPositions = []
     for(var i = 0; i < strLen; ++i) {
-      var lowerCode = lowerCodes[i] = lower.charCodeAt(i)
+      var c = lower.charAt(i);
+      var deserialStr = koreanToJamo(c);
+      var deserialLen = deserialStr.length
+      for (var j=0; j < deserialLen; ++j) {
+        originalCharPositions.push(i);
+        var lowerCode = deserialStr.charCodeAt(j)
+        lowerCodes.push(lowerCode)
+        // var lowerCode = lowerCodes[i] = lower.charCodeAt(i)
 
-      if(lowerCode === 32) {
-        containsSpace = true
-        continue // it's important that we don't set any bitflags for space
+        if(lowerCode === 32) {
+          containsSpace = true
+          continue // it's important that we don't set any bitflags for space
+        }
+
+        var bit = lowerCode>=97&&lowerCode<=122 ? lowerCode-97 // alphabet
+                : lowerCode>=48&&lowerCode<=57  ? 26           // numbers
+                                                              // 3 bits available
+                : lowerCode<=127                ? 30           // other ascii
+                :                                 31           // other utf8
+        bitflags |= 1<<bit
       }
-
-      var bit = lowerCode>=97&&lowerCode<=122 ? lowerCode-97 // alphabet
-              : lowerCode>=48&&lowerCode<=57  ? 26           // numbers
-                                                             // 3 bits available
-              : lowerCode<=127                ? 30           // other ascii
-              :                                 31           // other utf8
-      bitflags |= 1<<bit
     }
-
-    return {lowerCodes:lowerCodes, bitflags:bitflags, containsSpace:containsSpace, _lower:lower}
+    console.log(lowerCodes);
+    return {
+      lowerCodes:lowerCodes,
+      bitflags:bitflags,
+      containsSpace:containsSpace,
+      _lower:lower,
+      originalCharPositions: originalCharPositions
+    }
   }
   var prepareBeginningIndexes = (target) => {
     var targetLen = target.length
@@ -511,26 +550,36 @@
     var wasUpper = false
     var wasAlphanum = false
     var wasKorean = false
+    var idx = 0;
     for(var i = 0; i < targetLen; ++i) {
-      var targetCode = target.charCodeAt(i)
-      var isUpper = targetCode>=65&&targetCode<=90
-      var isAlphanum = isUpper || targetCode>=97&&targetCode<=122 || targetCode>=48&&targetCode<=57
-      var isKorean = targetCode>=0xAC00&&targetCode<=0xD7AF
-      var isBeginning = isUpper && !wasUpper || !wasAlphanum || !isAlphanum || !isKorean
-      wasUpper = isUpper
-      wasAlphanum = isAlphanum
-      wasKorean = isKorean
-      if(isBeginning) beginningIndexes[beginningIndexesLen++] = i
+      var c = target.charAt(i);
+      var deserialStr = koreanToJamo(c);
+      var deserialLen = deserialStr.length
+      for (var j=0; j < deserialLen; ++j) {
+        var targetCode = deserialStr.charCodeAt(j)
+        var isUpper = targetCode>=65&&targetCode<=90
+        var isAlphanum = isUpper || targetCode>=97&&targetCode<=122 || targetCode>=48&&targetCode<=57
+        var isKorean = targetCode>=0xAC00&&targetCode<=0xD7AF
+        var isBeginning = isUpper && !wasUpper || !wasAlphanum || !isAlphanum || !isKorean
+        wasUpper = isUpper
+        wasAlphanum = isAlphanum
+        wasKorean = isKorean
+        if(isBeginning) beginningIndexes[beginningIndexesLen++] = idx
+        idx += 1
+      }
     }
     return beginningIndexes
   }
   var prepareNextBeginningIndexes = (target) => {
+    var deserialStr = koreanToJamo(target);
+    var deserialLen = deserialStr.length
     var targetLen = target.length
     var beginningIndexes = prepareBeginningIndexes(target)
     var nextBeginningIndexes = [] // new Array(targetLen)     sparse array is too slow
     var lastIsBeginning = beginningIndexes[0]
     var lastIsBeginningI = 0
-    for(var i = 0; i < targetLen; ++i) {
+    console.log(beginningIndexes);
+    for (var i = 0; i < deserialLen; ++i) {
       if(lastIsBeginning > i) {
         nextBeginningIndexes[i] = lastIsBeginning
       } else {
